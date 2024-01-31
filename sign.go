@@ -1,6 +1,7 @@
 package dsig
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -9,6 +10,7 @@ import (
 	_ "crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
 	"fmt"
 
@@ -27,9 +29,9 @@ type SigningContext struct {
 	Canonicalizer Canonicalizer
 
 	// KeyStore is mutually exclusive with signer and certs
-	signer            crypto.Signer
-	certs             [][]byte
-	EncodeCertificate bool
+	signer        crypto.Signer
+	certs         [][]byte
+	XMLEncodeCert bool
 }
 
 func NewDefaultSigningContext(ks X509KeyStore) *SigningContext {
@@ -279,10 +281,16 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
 	for _, cert := range certs {
 		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
-		if ctx.EncodeCertificate {
+		if ctx.XMLEncodeCert {
 			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
 		} else {
-			x509Certificate.SetText(string(cert))
+			var b bytes.Buffer
+			err = xml.NewEncoder(&b).Encode(cert)
+			if err != nil {
+				return nil, err
+			}
+
+			x509Certificate.SetText(b.String())
 		}
 	}
 
