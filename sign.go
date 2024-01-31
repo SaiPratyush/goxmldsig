@@ -285,7 +285,7 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
 		} else {
 			var b bytes.Buffer
-			err = xml.NewEncoder(&b).Encode(cert)
+			err = xml.NewEncoder(&b).Encode(string(cert))
 			if err != nil {
 				return nil, err
 			}
