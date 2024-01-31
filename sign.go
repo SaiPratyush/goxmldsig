@@ -25,6 +25,7 @@ type SigningContext struct {
 	IdAttribute   string
 	Prefix        string
 	Canonicalizer Canonicalizer
+	Padding       rune
 
 	// KeyStore is mutually exclusive with signer and certs
 	signer crypto.Signer
@@ -272,13 +273,21 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 	}
 
 	signatureValue := ctx.createNamespacedElement(sig, SignatureValueTag)
-	signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
+	if ctx.Padding == 0 {
+		signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
+	} else {
+		signatureValue.SetText(base64.StdEncoding.WithPadding(ctx.Padding).EncodeToString(rawSignature))
+	}
 
 	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
 	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
 	for _, cert := range certs {
 		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
-		x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		if ctx.Padding == 0 {
+			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		} else {
+			x509Certificate.SetText(base64.StdEncoding.WithPadding(ctx.Padding).EncodeToString(cert))
+		}
 	}
 
 	return sig, nil
