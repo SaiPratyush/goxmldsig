@@ -1,7 +1,6 @@
 package dsig
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -12,8 +11,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"strings"
-
 	"github.com/beevik/etree"
 	"github.com/russellhaering/goxmldsig/etreeutils"
 )
@@ -284,14 +281,25 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 		if ctx.XMLEncodeCert {
 			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
 		} else {
-			cert = bytes.TrimPrefix(cert, []byte("-----BEGIN CERTIFICATE-----"))
-			cert = bytes.TrimSuffix(cert, []byte("-----END CERTIFICATE-----"))
-			cert = []byte(strings.ReplaceAll(string(cert), "\n", "&#13;\n"))
-			x509Certificate.SetText(string(cert))
+			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
 		}
 	}
 
 	return sig, nil
+}
+
+func encodeRFC2045(data []byte) string {
+	const lineLength = 76 // RFC 2045 line length limit
+
+	// Encode data to Base64
+	encoded := base64.StdEncoding.EncodeToString(data)
+
+	// Insert line breaks
+	for i := lineLength; i < len(encoded); i += lineLength + 1 { // +1 for the line break itself
+		encoded = encoded[:i] + "\n" + encoded[i:]
+	}
+
+	return encoded
 }
 
 func (ctx *SigningContext) createNamespacedElement(el *etree.Element, tag string) *etree.Element {
