@@ -10,9 +10,9 @@ import (
 	_ "crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/xml"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/beevik/etree"
 	"github.com/russellhaering/goxmldsig/etreeutils"
@@ -284,13 +284,10 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 		if ctx.XMLEncodeCert {
 			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
 		} else {
-			var b bytes.Buffer
-			err = xml.NewEncoder(&b).Encode(string(cert))
-			if err != nil {
-				return nil, err
-			}
-
-			x509Certificate.SetText(b.String())
+			cert = bytes.TrimPrefix(cert, []byte("-----BEGIN CERTIFICATE-----"))
+			cert = bytes.TrimSuffix(cert, []byte("-----END CERTIFICATE-----"))
+			cert = []byte(strings.ReplaceAll(string(cert), "\n", "&#13;\n"))
+			x509Certificate.SetText(string(cert))
 		}
 	}
 
