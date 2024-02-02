@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"github.com/beevik/etree"
 	"github.com/russellhaering/goxmldsig/etreeutils"
+	"strings"
 )
 
 type SigningContext struct {
@@ -285,6 +286,8 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 		if ctx.XMLEncodeCert {
 			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
 		} else {
+			cert = []byte(strings.Replace(string(cert), "-----BEGIN CERTIFICATE-----", "", -1))
+			cert = []byte(strings.Replace(string(cert), "-----END CERTIFICATE-----", "", -1))
 			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
 		}
 	}
