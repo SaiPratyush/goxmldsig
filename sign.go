@@ -303,7 +303,7 @@ func encodeRFC2045(data []byte) string {
 
 	// Insert line breaks
 	for i := lineLength; i < len(encoded); i += lineLength + 1 { // +1 for the line break itself
-		encoded = encoded[:i] + "\n" + encoded[i:]
+		encoded = encoded[:i] + "&#13;\n" + encoded[i:]
 	}
 
 	return encoded
