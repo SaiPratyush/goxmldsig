@@ -272,7 +272,11 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 	}
 
 	signatureValue := ctx.createNamespacedElement(sig, SignatureValueTag)
-	signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
+	if ctx.XMLEncodeCert {
+		signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
+	} else {
+		signatureValue.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(rawSignature))))
+	}
 
 	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
 	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
