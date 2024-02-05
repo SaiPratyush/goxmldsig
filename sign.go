@@ -245,6 +245,24 @@ func (ctx *SigningContext) ConstructSignatureV2(el, signedInfo *etree.Element) (
 		return nil, err
 	}
 
+	certs, err := ctx.getCerts()
+	if err != nil {
+		return nil, err
+	}
+
+	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
+	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
+	for _, cert := range certs {
+		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
+		if ctx.XMLEncodeCert {
+			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		} else {
+			cert = []byte(strings.Replace(string(cert), "-----BEGIN CERTIFICATE-----", "", -1))
+			cert = []byte(strings.Replace(string(cert), "-----END CERTIFICATE-----", "", -1))
+			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
+		}
+	}
+
 	// Finally detatch the SignedInfo in order to capture all of the namespace
 	// declarations in the scope we've constructed.
 	detatchedSignedInfo, err := etreeutils.NSDetatch(sigNSCtx, signedInfo)
@@ -262,29 +280,11 @@ func (ctx *SigningContext) ConstructSignatureV2(el, signedInfo *etree.Element) (
 		return nil, err
 	}
 
-	certs, err := ctx.getCerts()
-	if err != nil {
-		return nil, err
-	}
-
 	signatureValue := ctx.createNamespacedElement(sig, SignatureValueTag)
 	if ctx.XMLEncodeCert {
 		signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
 	} else {
 		signatureValue.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(rawSignature))))
-	}
-
-	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
-	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
-	for _, cert := range certs {
-		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
-		if ctx.XMLEncodeCert {
-			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
-		} else {
-			cert = []byte(strings.Replace(string(cert), "-----BEGIN CERTIFICATE-----", "", -1))
-			cert = []byte(strings.Replace(string(cert), "-----END CERTIFICATE-----", "", -1))
-			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
-		}
 	}
 
 	return sig, nil
