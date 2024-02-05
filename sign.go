@@ -397,32 +397,7 @@ func (ctx *SigningContext) ConstructSignatureV3(el *etree.Element, enveloped boo
 	sig.CreateAttr(xmlns, Namespace)
 	sig.AddChild(signedInfo)
 
-	// First get the context surrounding the element we are signing.
-	rootNSCtx, err := etreeutils.NSBuildParentContext(el)
-	if err != nil {
-		return nil, err
-	}
-
-	// Then capture any declarations on the element itself.
-	elNSCtx, err := rootNSCtx.SubContext(el)
-	if err != nil {
-		return nil, err
-	}
-
-	// Followed by declarations on the Signature (which we just added above)
-	sigNSCtx, err := elNSCtx.SubContext(sig)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally detatch the SignedInfo in order to capture all of the namespace
-	// declarations in the scope we've constructed.
-	detatchedSignedInfo, err := etreeutils.NSDetatch(sigNSCtx, signedInfo)
-	if err != nil {
-		return nil, err
-	}
-
-	digest, err := ctx.digest(detatchedSignedInfo)
+	digest, err := ctx.digest(signedInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -438,6 +413,32 @@ func (ctx *SigningContext) ConstructSignatureV3(el *etree.Element, enveloped boo
 	} else {
 		signatureValue.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(rawSignature))))
 	}
+
+	//// First get the context surrounding the element we are signing.
+	//rootNSCtx, err := etreeutils.NSBuildParentContext(el)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//
+	//// Then capture any declarations on the element itself.
+	//elNSCtx, err := rootNSCtx.SubContext(el)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//// Followed by declarations on the Signature (which we just added above)
+	//sigNSCtx, err := elNSCtx.SubContext(sig)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//// Finally detatch the SignedInfo in order to capture all of the namespace
+	//// declarations in the scope we've constructed.
+	//detatchedSignedInfo, err := etreeutils.NSDetatch(sigNSCtx, signedInfo)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
 	// of the SignedInfo must declare all namespaces that are in scope at it's final
