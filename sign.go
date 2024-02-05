@@ -397,29 +397,6 @@ func (ctx *SigningContext) ConstructSignatureV3(el *etree.Element, enveloped boo
 	sig.CreateAttr(xmlns, Namespace)
 	sig.AddChild(signedInfo)
 
-	// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
-	// of the SignedInfo must declare all namespaces that are in scope at it's final
-	// enveloped location in the document. In order to do that, we're going to construct
-	// a series of cascading NSContexts to capture namespace declarations:
-
-	certs, err := ctx.getCerts()
-	if err != nil {
-		return nil, err
-	}
-
-	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
-	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
-	for _, cert := range certs {
-		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
-		if ctx.XMLEncodeCert {
-			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
-		} else {
-			cert = []byte(strings.Replace(string(cert), "-----BEGIN CERTIFICATE-----", "", -1))
-			cert = []byte(strings.Replace(string(cert), "-----END CERTIFICATE-----", "", -1))
-			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
-		}
-	}
-
 	// First get the context surrounding the element we are signing.
 	rootNSCtx, err := etreeutils.NSBuildParentContext(el)
 	if err != nil {
@@ -460,6 +437,29 @@ func (ctx *SigningContext) ConstructSignatureV3(el *etree.Element, enveloped boo
 		signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
 	} else {
 		signatureValue.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(rawSignature))))
+	}
+
+	// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
+	// of the SignedInfo must declare all namespaces that are in scope at it's final
+	// enveloped location in the document. In order to do that, we're going to construct
+	// a series of cascading NSContexts to capture namespace declarations:
+
+	certs, err := ctx.getCerts()
+	if err != nil {
+		return nil, err
+	}
+
+	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
+	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
+	for _, cert := range certs {
+		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
+		if ctx.XMLEncodeCert {
+			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		} else {
+			cert = []byte(strings.Replace(string(cert), "-----BEGIN CERTIFICATE-----", "", -1))
+			cert = []byte(strings.Replace(string(cert), "-----END CERTIFICATE-----", "", -1))
+			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
+		}
 	}
 
 	return sig, nil
