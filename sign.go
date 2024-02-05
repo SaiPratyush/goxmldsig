@@ -377,6 +377,94 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 	return sig, nil
 }
 
+func (ctx *SigningContext) ConstructSignatureV3(el *etree.Element, enveloped bool) (*etree.Element, error) {
+
+	signedInfo, err := ctx.ConstructSignedInfo(el, enveloped)
+	if err != nil {
+		return nil, err
+	}
+
+	sig := &etree.Element{
+		Tag:   SignatureTag,
+		Space: ctx.Prefix,
+	}
+
+	xmlns := "xmlns"
+	if ctx.Prefix != "" {
+		xmlns += ":" + ctx.Prefix
+	}
+
+	sig.CreateAttr(xmlns, Namespace)
+	sig.AddChild(signedInfo)
+
+	// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
+	// of the SignedInfo must declare all namespaces that are in scope at it's final
+	// enveloped location in the document. In order to do that, we're going to construct
+	// a series of cascading NSContexts to capture namespace declarations:
+
+	certs, err := ctx.getCerts()
+	if err != nil {
+		return nil, err
+	}
+
+	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
+	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
+	for _, cert := range certs {
+		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
+		if ctx.XMLEncodeCert {
+			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		} else {
+			cert = []byte(strings.Replace(string(cert), "-----BEGIN CERTIFICATE-----", "", -1))
+			cert = []byte(strings.Replace(string(cert), "-----END CERTIFICATE-----", "", -1))
+			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
+		}
+	}
+
+	// First get the context surrounding the element we are signing.
+	rootNSCtx, err := etreeutils.NSBuildParentContext(el)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then capture any declarations on the element itself.
+	elNSCtx, err := rootNSCtx.SubContext(el)
+	if err != nil {
+		return nil, err
+	}
+
+	// Followed by declarations on the Signature (which we just added above)
+	sigNSCtx, err := elNSCtx.SubContext(sig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally detatch the SignedInfo in order to capture all of the namespace
+	// declarations in the scope we've constructed.
+	detatchedSignedInfo, err := etreeutils.NSDetatch(sigNSCtx, signedInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	digest, err := ctx.digest(detatchedSignedInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	rawSignature, err := ctx.signDigest(digest)
+	if err != nil {
+		return nil, err
+	}
+
+	signatureValue := ctx.createNamespacedElement(sig, SignatureValueTag)
+	if ctx.XMLEncodeCert {
+		signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
+	} else {
+		signatureValue.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(rawSignature))))
+	}
+
+	return sig, nil
+}
+
 func encodeRFC2045(data []byte) string {
 	const lineLength = 76 // RFC 2045 line length limit
 
@@ -405,6 +493,18 @@ func (ctx *SigningContext) SignEnveloped(el *etree.Element) (*etree.Element, err
 
 	ret := el.Copy()
 	ret.Child = append(ret.Child, sig)
+
+	return ret, nil
+}
+
+func (ctx *SigningContext) SignEnvelopedV2(el *etree.Element, positionRoot, positionTag string) (*etree.Element, error) {
+	sig, err := ctx.ConstructSignatureV3(el, true)
+	if err != nil {
+		return nil, err
+	}
+
+	ret := el.Copy()
+	ret.FindElement(positionRoot).FindElement(positionTag).Child = append(el.FindElement(positionRoot).FindElement(positionTag).Child, sig)
 
 	return ret, nil
 }
