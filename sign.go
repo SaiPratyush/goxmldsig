@@ -11,9 +11,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-
 	"github.com/beevik/etree"
 	"github.com/russellhaering/goxmldsig/etreeutils"
+	"strings"
 )
 
 type SigningContext struct {
@@ -27,8 +27,9 @@ type SigningContext struct {
 	Canonicalizer Canonicalizer
 
 	// KeyStore is mutually exclusive with signer and certs
-	signer crypto.Signer
-	certs  [][]byte
+	signer        crypto.Signer
+	certs         [][]byte
+	XMLEncodeCert bool
 }
 
 func NewDefaultSigningContext(ks X509KeyStore) *SigningContext {
@@ -148,7 +149,7 @@ func (ctx *SigningContext) getCerts() ([][]byte, error) {
 	}
 }
 
-func (ctx *SigningContext) constructSignedInfo(el *etree.Element, enveloped bool) (*etree.Element, error) {
+func (ctx *SigningContext) ConstructSignedInfo(el *etree.Element, enveloped bool) (*etree.Element, error) {
 	digestAlgorithmIdentifier := ctx.GetDigestAlgorithmIdentifier()
 	if digestAlgorithmIdentifier == "" {
 		return nil, errors.New("unsupported hash mechanism")
@@ -207,8 +208,90 @@ func (ctx *SigningContext) constructSignedInfo(el *etree.Element, enveloped bool
 	return signedInfo, nil
 }
 
+func (ctx *SigningContext) ConstructSignatureV2(el, signedInfo *etree.Element) (*etree.Element, error) {
+	sig := &etree.Element{
+		Tag:   SignatureTag,
+		Space: ctx.Prefix,
+	}
+
+	xmlns := "xmlns"
+	if ctx.Prefix != "" {
+		xmlns += ":" + ctx.Prefix
+	}
+
+	sig.CreateAttr(xmlns, Namespace)
+	sig.AddChild(signedInfo)
+
+	// When using xml-c14n11 (ie, non-exclusive canonicalization) the canonical form
+	// of the SignedInfo must declare all namespaces that are in scope at it's final
+	// enveloped location in the document. In order to do that, we're going to construct
+	// a series of cascading NSContexts to capture namespace declarations:
+
+	// First get the context surrounding the element we are signing.
+	rootNSCtx, err := etreeutils.NSBuildParentContext(el)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then capture any declarations on the element itself.
+	elNSCtx, err := rootNSCtx.SubContext(el)
+	if err != nil {
+		return nil, err
+	}
+
+	// Followed by declarations on the Signature (which we just added above)
+	sigNSCtx, err := elNSCtx.SubContext(sig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally detatch the SignedInfo in order to capture all of the namespace
+	// declarations in the scope we've constructed.
+	detatchedSignedInfo, err := etreeutils.NSDetatch(sigNSCtx, signedInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	digest, err := ctx.digest(detatchedSignedInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	rawSignature, err := ctx.signDigest(digest)
+	if err != nil {
+		return nil, err
+	}
+
+	certs, err := ctx.getCerts()
+	if err != nil {
+		return nil, err
+	}
+
+	signatureValue := ctx.createNamespacedElement(sig, SignatureValueTag)
+	if ctx.XMLEncodeCert {
+		signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
+	} else {
+		signatureValue.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(rawSignature))))
+	}
+
+	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
+	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
+	for _, cert := range certs {
+		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
+		if ctx.XMLEncodeCert {
+			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		} else {
+			cert = []byte(strings.Replace(string(cert), "-----BEGIN CERTIFICATE-----", "", -1))
+			cert = []byte(strings.Replace(string(cert), "-----END CERTIFICATE-----", "", -1))
+			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
+		}
+	}
+
+	return sig, nil
+}
+
 func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool) (*etree.Element, error) {
-	signedInfo, err := ctx.constructSignedInfo(el, enveloped)
+	signedInfo, err := ctx.ConstructSignedInfo(el, enveloped)
 	if err != nil {
 		return nil, err
 	}
@@ -272,16 +355,40 @@ func (ctx *SigningContext) ConstructSignature(el *etree.Element, enveloped bool)
 	}
 
 	signatureValue := ctx.createNamespacedElement(sig, SignatureValueTag)
-	signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
+	if ctx.XMLEncodeCert {
+		signatureValue.SetText(base64.StdEncoding.EncodeToString(rawSignature))
+	} else {
+		signatureValue.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(rawSignature))))
+	}
 
 	keyInfo := ctx.createNamespacedElement(sig, KeyInfoTag)
 	x509Data := ctx.createNamespacedElement(keyInfo, X509DataTag)
 	for _, cert := range certs {
 		x509Certificate := ctx.createNamespacedElement(x509Data, X509CertificateTag)
-		x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		if ctx.XMLEncodeCert {
+			x509Certificate.SetText(base64.StdEncoding.EncodeToString(cert))
+		} else {
+			cert = []byte(strings.Replace(string(cert), "-----BEGIN CERTIFICATE-----", "", -1))
+			cert = []byte(strings.Replace(string(cert), "-----END CERTIFICATE-----", "", -1))
+			x509Certificate.SetText(encodeRFC2045([]byte(base64.StdEncoding.EncodeToString(cert))))
+		}
 	}
 
 	return sig, nil
+}
+
+func encodeRFC2045(data []byte) string {
+	const lineLength = 76 // RFC 2045 line length limit
+
+	// Encode data to Base64
+	encoded := base64.StdEncoding.EncodeToString(data)
+
+	// Insert line breaks
+	for i := lineLength; i < len(encoded); i += lineLength + 1 { // +1 for the line break itself
+		encoded = encoded[:i] + "&#13;\n" + encoded[i:]
+	}
+
+	return encoded
 }
 
 func (ctx *SigningContext) createNamespacedElement(el *etree.Element, tag string) *etree.Element {
